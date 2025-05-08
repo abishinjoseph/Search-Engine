@@ -14,10 +14,19 @@ pipeline {
 
         stage('Deploy to EC2') {
             steps {
-                echo "Deploying files to $DEPLOY_DIR"
-                sh """
-                    sudo cp -r * $DEPLOY_DIR
-                """
+                script {
+                    // Ensure the target directory exists
+                    sh """
+                        if [ ! -d "$DEPLOY_DIR" ]; then
+                            echo "$DEPLOY_DIR does not exist, creating directory."
+                            sudo mkdir -p $DEPLOY_DIR
+                        fi
+                    """
+                    echo "Deploying files to $DEPLOY_DIR"
+                    sh """
+                        sudo cp -r * $DEPLOY_DIR
+                    """
+                }
             }
         }
     }
