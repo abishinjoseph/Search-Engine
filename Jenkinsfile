@@ -1,29 +1,59 @@
 pipeline {
-    agent any
+
+    parameters {
+        booleanParam(name: 'autoApprove', defaultValue: false, description: 'Automatically run apply after generating plan?')
+    }
 
     environment {
-        EC2_USER = 'ec2-user' // Change if needed, e.g., 'ubuntu' for Ubuntu instances
-        EC2_HOST = 'your-ec2-public-ip'
-        EC2_KEY = credentials('EC2_PRIVATE_KEY') // Add your private key in Jenkins credentials
-        DEPLOY_PATH = '/var/www/html' // Change based on your EC2 server setup
+        AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
+        AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
     }
+
+    agent any
 
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                git url: 'https://github.com/abishinjoseph/Search-Engine.git', branch: 'main'
+                checkout([$class: 'GitSCM', branches: [[name: '*/main']],
+                    userRemoteConfigs: [[url: 'https://github.com/pratheesh-dev-tech/dev_final_web.git']]
+                ])
             }
         }
 
-        stage('Deploy to EC2') {
+        stage('Terraform Init & Plan') {
             steps {
-                sh '''
-                eval `ssh-agent -s`
-                ssh-add $EC2_KEY
-                ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_HOST "rm -rf $DEPLOY_PATH/*"
-                scp -o StrictHostKeyChecking=no *.html *.css *.js *.png *.webp $EC2_USER@$EC2_HOST:$DEPLOY_PATH
-                '''
+                dir('terraform') {
+                    sh '''
+                        terraform init
+                        terraform plan -out=tfplan
+                        terraform show -no-color tfplan > tfplan.txt
+                    '''
+                }
+            }
+        }
+
+        stage('Approval') {
+            when {
+                not {
+                    equals expected: true, actual: params.autoApprove
+                }
+            }
+            steps {
+                script {
+                    def planContent = readFile 'terraform/tfplan.txt'
+                    input message: 'Do you want to apply the plan?',
+                          parameters: [text(name: 'Terraform Plan', description: 'Review the plan below:', defaultValue: planContent)]
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                dir('terraform') {
+                    sh 'terraform apply -input=false tfplan'
+                }
             }
         }
     }
+
 }
